@@ -161,11 +161,11 @@ var ReadyCheckCommand = SlashCommand{
 		}
 
 		stopper := make(chan bool)
+		voiceStoppers[i.GuildID] = stopper
 		vc, err := s.ChannelVoiceJoin(i.GuildID, channel.ID, false, false)
 		if err != nil {
 			return
 		}
-		voiceStoppers[i.GuildID] = stopper
 		defer func() {
 			if stopper == voiceStoppers[i.GuildID] {
 				vc.Disconnect()
