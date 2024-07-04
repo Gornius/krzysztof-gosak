@@ -122,7 +122,7 @@ var ReadyCheckCommand = SlashCommand{
 			return
 		}
 		if len(usersInChannel) < 1 {
-			sendErrorMessage(s, i, "The channel you're in has less than 2 users.")
+			sendErrorMessage(s, i, "There are no people in the channel")
 			return
 		}
 
