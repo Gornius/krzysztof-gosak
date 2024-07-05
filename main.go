@@ -8,8 +8,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/bwmarrin/dgvoice"
 	"github.com/bwmarrin/discordgo"
+	"github.com/gornius/krzysztof-gosak/dgvoice"
 )
 
 const (
@@ -112,6 +112,7 @@ var ReadyCheckCommand = SlashCommand{
 
 		channel, err := getVoiceChannelThatUserIsIn(s, user, guild)
 		if err != nil {
+			sendErrorMessage(s, i, "Couldn't find a channel that you're in at the moment.")
 			return
 		}
 
