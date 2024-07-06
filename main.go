@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/gornius/krzysztof-gosak/dgvoice"
+	"github.com/gornius/krzysztof-gosak/pkg/dgvoice"
 )
 
 const (

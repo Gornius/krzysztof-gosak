@@ -16,10 +16,9 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
-	"sync"
 
 	"github.com/bwmarrin/discordgo"
-	"layeh.com/gopus"
+	"gopkg.in/hraban/opus.v2"
 )
 
 // NOTE: This API is not final and these are likely to change.
@@ -32,11 +31,6 @@ const (
 	frameRate int = 48000               // audio sampling rate
 	frameSize int = 960                 // uint16 size of each audio frame
 	maxBytes  int = (frameSize * 2) * 2 // max size of opus data
-)
-
-var (
-	speakers map[uint32]*gopus.Decoder
-	mu       sync.Mutex
 )
 
 // OnError gets called by dgvoice when an error is encountered.
@@ -60,7 +54,7 @@ func SendPCM(v *discordgo.VoiceConnection, pcm <-chan []int16) {
 
 	var err error
 
-	opusEncoder, err := gopus.NewEncoder(frameRate, channels, gopus.Audio)
+	opusEncoder, err := opus.NewEncoder(frameRate, channels, opus.Application(opus.AppAudio))
 
 	if err != nil {
 		OnError("NewEncoder Error", err)
@@ -76,8 +70,9 @@ func SendPCM(v *discordgo.VoiceConnection, pcm <-chan []int16) {
 			return
 		}
 
+		buf := make([]byte, 96)
 		// try encoding pcm frame with Opus
-		opus, err := opusEncoder.Encode(recv, frameSize, maxBytes)
+		_, err := opusEncoder.Encode(recv, buf)
 		if err != nil {
 			OnError("Encoding Error", err)
 			return
@@ -89,7 +84,7 @@ func SendPCM(v *discordgo.VoiceConnection, pcm <-chan []int16) {
 			return
 		}
 		// send encoded opus data to the sendOpus channel
-		v.OpusSend <- opus
+		v.OpusSend <- buf
 	}
 }
 
@@ -113,20 +108,18 @@ func ReceivePCM(v *discordgo.VoiceConnection, c chan *discordgo.Packet) {
 			return
 		}
 
-		if speakers == nil {
-			speakers = make(map[uint32]*gopus.Decoder)
-		}
+		speakers := make(map[uint32]*opus.Decoder)
 
 		_, ok = speakers[p.SSRC]
 		if !ok {
-			speakers[p.SSRC], err = gopus.NewDecoder(48000, 2)
+			speakers[p.SSRC], err = opus.NewDecoder(48000, 2)
 			if err != nil {
 				OnError("error creating opus decoder", err)
 				continue
 			}
 		}
 
-		p.PCM, err = speakers[p.SSRC].Decode(p.Opus, 960, false)
+		_, err = speakers[p.SSRC].Decode(p.Opus, p.PCM)
 		if err != nil {
 			OnError("Error decoding opus data", err)
 			continue
