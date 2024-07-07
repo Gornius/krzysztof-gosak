@@ -12,7 +12,7 @@ import (
 	"github.com/jedib0t/go-pretty/v6/table"
 )
 
-const ReadyCheckWaitingTime = 5 * time.Second
+const ReadyCheckWaitingTime = 60 * time.Second
 
 type ReadyCheckStatus string
 
