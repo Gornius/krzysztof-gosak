@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/gornius/krzysztof-gosak/components"
 	"github.com/gornius/krzysztof-gosak/slashcommands"
 )
 
@@ -42,6 +43,11 @@ func main() {
 	slashcommands.RegisterSlashCommands(dg, []*slashcommands.SlashCommand{
 		&slashcommands.PingAppCommand,
 		&slashcommands.ReadyCheckCommand,
+	})
+
+	components.RegisterComponentInteractionHandlers(dg, []*components.ComponentHandler{
+		&components.ReadyCheckAcceptButtonHandler,
+		&components.ReadyCheckRejectButtonHandler,
 	})
 
 	dg.Identify.Intents = discordgo.IntentsGuildMessages
