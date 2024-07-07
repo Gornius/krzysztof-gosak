@@ -3,7 +3,6 @@ package slashcommands
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -83,7 +82,6 @@ func readyCheckTableDraw(channelId string, interactionId string) (string, error)
 func ReadyCheckUpdateStatus(s *discordgo.Session, message *discordgo.Message, userId string, status ReadyCheckStatus) error {
 	row, err := findReadyCheckRow(message.ChannelID, message.Interaction.ID, userId)
 	if err != nil {
-		fmt.Printf("err: %v\n", err)
 		return err
 	}
 	row.Status = status
@@ -92,13 +90,11 @@ func ReadyCheckUpdateStatus(s *discordgo.Session, message *discordgo.Message, us
 
 	tableString, err := readyCheckTableDraw(message.ChannelID, message.Interaction.ID)
 	if err != nil {
-		fmt.Printf("err: %v\n", err)
 		return err
 	}
 
 	_, err = s.ChannelMessageEdit(message.ChannelID, message.ID, previousMessageContentPreTable+"\n```\n"+tableString+"\n```")
 	if err != nil {
-		fmt.Printf("err: %v\n", err)
 		return err
 	}
 
@@ -172,7 +168,7 @@ var ReadyCheckCommand = SlashCommand{
 		readyCheckTableInit(i.Interaction.ChannelID, i.Interaction.ID, usersInChannel)
 		readyCheckTableText, err := readyCheckTableDraw(i.Interaction.ChannelID, i.Interaction.ID)
 		if err != nil {
-			fmt.Println("TODO: Handle error")
+			utils.SendErrorMessage(s, i.Interaction, "Something went wrong")
 		}
 
 		// Print ready check message
