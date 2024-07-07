@@ -12,19 +12,28 @@ import (
 	"github.com/jedib0t/go-pretty/v6/table"
 )
 
-const ReadyCheckAutoDeleteTime = 60 * time.Second
+const ReadyCheckWaitingTime = 5 * time.Second
 
 type ReadyCheckStatus string
 
 const (
-	ReadyCheckStatusWaiting  ReadyCheckStatus = "⌛ WAITING"
-	ReadyCheckStatusRejected ReadyCheckStatus = "⛔ REJECTED"
-	ReadyCheckStatusAccepted ReadyCheckStatus = "✅ ACCEPTED"
+	ReadyCheckStatusWaiting       ReadyCheckStatus = "⌛ WAITING"
+	ReadyCheckStatusRejected      ReadyCheckStatus = "⛔ REJECTED"
+	ReadyCheckStatusAccepted      ReadyCheckStatus = "✅ ACCEPTED"
+	ReadyCheckStatusDidNotRespond ReadyCheckStatus = "⛔ DID NOT RESPOND"
+)
+
+type ReadyCheckEmbedColor int
+
+const (
+	ReadyCheckEmbedColorWaiting  ReadyCheckEmbedColor = 0xeab308
+	ReadyCheckEmbedColorRejected ReadyCheckEmbedColor = 0xdc2626
+	ReadyCheckEmbedColorAccepted ReadyCheckEmbedColor = 0x84cc16
 )
 
 var voiceStoppers = map[string]chan bool{}
 
-// format: ReadyCheckRows[channelId][interactionId][userId]
+// format: ReadyCheckRows[channelID][interactionID][userID]
 type ReadyCheckRow struct {
 	ChannelID     string
 	InteractionID string
@@ -60,8 +69,8 @@ func findReadyCheckRow(channelID string, interactionID string, userID string) (*
 	return nil, errors.New("couldn't find ready check row")
 }
 
-func readyCheckTableDraw(channelId string, interactionId string) (string, error) {
-	rows, err := findReadyCheckRows(channelId, interactionId)
+func ReadyCheckTableDraw(channelID string, interactionID string) (string, error) {
+	rows, err := findReadyCheckRows(channelID, interactionID)
 	if err != nil {
 		return "", err
 	}
@@ -76,42 +85,86 @@ func readyCheckTableDraw(channelId string, interactionId string) (string, error)
 	}
 	t.Render()
 
-	return output.String(), nil
+	return "```\n" + output.String() + "\n```", nil
 }
 
-func ReadyCheckUpdateStatus(s *discordgo.Session, message *discordgo.Message, userId string, status ReadyCheckStatus) error {
-	row, err := findReadyCheckRow(message.ChannelID, message.Interaction.ID, userId)
+func ReadyCheckUpdateStatus(s *discordgo.Session, message *discordgo.Message, userID string, status ReadyCheckStatus) error {
+	row, err := findReadyCheckRow(message.ChannelID, message.Interaction.ID, userID)
 	if err != nil {
 		return err
 	}
 	row.Status = status
-
-	previousMessageContentPreTable := strings.Split(message.Content, "\n")[0]
-
-	tableString, err := readyCheckTableDraw(message.ChannelID, message.Interaction.ID)
-	if err != nil {
-		return err
-	}
-
-	_, err = s.ChannelMessageEdit(message.ChannelID, message.ID, previousMessageContentPreTable+"\n```\n"+tableString+"\n```")
-	if err != nil {
-		return err
-	}
-
 	return nil
 }
 
-func readyCheckTableInit(channelId string, interactionId string, users []*discordgo.User) error {
+func ReadyCheckGetEmbedColor(channelID string, interactionID string) (ReadyCheckEmbedColor, error) {
+	rows, err := findReadyCheckRows(channelID, interactionID)
+	if err != nil {
+		return 0, err
+	}
+	rowsCount := len(rows)
+	readyRowsCount := 0
+
+	for _, row := range rows {
+		if row.Status == ReadyCheckStatusAccepted {
+			readyRowsCount++
+		}
+		if row.Status == ReadyCheckStatusRejected || row.Status == ReadyCheckStatusDidNotRespond {
+			return ReadyCheckEmbedColorRejected, nil
+		}
+	}
+
+	if rowsCount == readyRowsCount {
+		return ReadyCheckEmbedColorAccepted, nil
+	}
+
+	return ReadyCheckEmbedColorWaiting, nil
+}
+
+func readyCheckTableInit(channelID string, interactionID string, users []*discordgo.User) error {
 	for _, user := range users {
 		row := &ReadyCheckRow{
 			UserName:      user.Username,
-			ChannelID:     channelId,
-			InteractionID: interactionId,
+			ChannelID:     channelID,
+			InteractionID: interactionID,
 			UserID:        user.ID,
 			Status:        ReadyCheckStatusWaiting,
 		}
 		readyCheckRows = append(readyCheckRows, row)
 	}
+
+	return nil
+}
+
+func readyCheckHandleTimeout(s *discordgo.Session, interaction *discordgo.Interaction, message *discordgo.Message) error {
+	time.Sleep(ReadyCheckWaitingTime)
+
+	rows, err := findReadyCheckRows(message.ChannelID, interaction.ID)
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if row.Status == ReadyCheckStatusWaiting {
+			row.Status = ReadyCheckStatusDidNotRespond
+		}
+	}
+
+	newEmbedColor, _ := ReadyCheckGetEmbedColor(message.ChannelID, interaction.ID)
+	message.Embeds[0].Color = int(newEmbedColor)
+
+	newTable, err := ReadyCheckTableDraw(message.ChannelID, interaction.ID)
+	if err != nil {
+		return err
+	}
+	message.Embeds[0].Description = newTable
+
+	s.ChannelMessageEditComplex(&discordgo.MessageEdit{
+		Channel:    message.ChannelID,
+		ID:         message.ID,
+		Embeds:     &message.Embeds,
+		Components: &[]discordgo.MessageComponent{},
+	})
+	readyCheckCleanUpRows(message.ChannelID, interaction.ID)
 
 	return nil
 }
@@ -166,7 +219,7 @@ var ReadyCheckCommand = SlashCommand{
 		}
 
 		readyCheckTableInit(i.Interaction.ChannelID, i.Interaction.ID, usersInChannel)
-		readyCheckTableText, err := readyCheckTableDraw(i.Interaction.ChannelID, i.Interaction.ID)
+		readyCheckTableText, err := ReadyCheckTableDraw(i.Interaction.ChannelID, i.Interaction.ID)
 		if err != nil {
 			utils.SendErrorMessage(s, i.Interaction, "Something went wrong")
 		}
@@ -175,18 +228,25 @@ var ReadyCheckCommand = SlashCommand{
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
-				Content: user.Mention() + " has requested a ready check for users: " + strings.Join(usersInChannelMentions, ", ") + ". This message will auto-delete in " + ReadyCheckAutoDeleteTime.String() + ".\n```\n" + readyCheckTableText + "\n```",
+				Content: user.Mention() + " has requested a ready check for users: " + strings.Join(usersInChannelMentions, ", ") + ". You have " + ReadyCheckWaitingTime.String() + " to respond.",
+				Embeds: []*discordgo.MessageEmbed{
+					{
+						Title:       "Ready Check",
+						Description: readyCheckTableText,
+						Color:       int(ReadyCheckEmbedColorWaiting),
+					},
+				},
 				Components: []discordgo.MessageComponent{
 					discordgo.ActionsRow{
 						Components: []discordgo.MessageComponent{
 							discordgo.Button{
 								CustomID: "ready-check-accept",
-								Label:    "ACCEPT",
-								Style:    discordgo.PrimaryButton,
+								Label:    "✅ ACCEPT",
+								Style:    discordgo.SuccessButton,
 							},
 							discordgo.Button{
 								CustomID: "ready-check-reject",
-								Label:    "REJECT",
+								Label:    "⛔ REJECT",
 								Style:    discordgo.DangerButton,
 							},
 						},
@@ -200,12 +260,8 @@ var ReadyCheckCommand = SlashCommand{
 			return
 		}
 
-		// Auto-destroy ready check message
-		go func() {
-			time.Sleep(ReadyCheckAutoDeleteTime)
-			s.ChannelMessageDelete(msg.ChannelID, msg.ID)
-			readyCheckCleanUpRows(i.Interaction.ChannelID, i.Interaction.ID)
-		}()
+		// Timeout handle
+		go readyCheckHandleTimeout(s, i.Interaction, msg)
 
 		// Play sound
 		if _, ok := voiceStoppers[i.GuildID]; ok {
