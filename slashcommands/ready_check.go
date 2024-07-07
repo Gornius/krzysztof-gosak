@@ -3,6 +3,7 @@ package slashcommands
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -261,7 +262,12 @@ var ReadyCheckCommand = SlashCommand{
 		}
 
 		// Timeout handle
-		go readyCheckHandleTimeout(s, i.Interaction, msg)
+		go func() {
+			err := readyCheckHandleTimeout(s, i.Interaction, msg)
+			if err != nil {
+				fmt.Println(err)
+			}
+		}()
 
 		// Play sound
 		if _, ok := voiceStoppers[i.GuildID]; ok {
